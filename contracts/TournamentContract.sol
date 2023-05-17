@@ -44,7 +44,9 @@ contract TournamentContract is Ownable, AccessControl {
         uint createDate;
     }
     uint public lastUserId = 0;
+    uint public userCount = 0;
     uint public lastTournamentId = 0;
+    uint public tournamentCount = 0;
 
     fallback() external payable {}
 
@@ -88,24 +90,32 @@ contract TournamentContract is Ownable, AccessControl {
         _;
     }
 
-    function assignRoleToUser(address _address) public onlyOwner {
+    function assignOrganizerRoleToUser(
+        address _address
+    ) public onlyOwner returns (address) {
         _grantRole(ROLE_ORGANIZER, _address);
+        userList[_address].isOrganizer = true;
+        return (_address);
     }
 
     function getBalanceContract() public view returns (uint) {
         return address(this).balance;
     }
 
-    function createUser(string memory _email) public onlyVisitors {
-        userList[msg.sender] = User({
+    function createUser(
+        string memory _email
+    ) public onlyVisitors returns (User memory) {
+        User memory user = User({
             id: lastUserId,
             email: _email,
             isOrganizer: false,
             createDate: block.timestamp
         });
+        userList[msg.sender] = user;
         _grantRole(ROLE_USER, msg.sender);
         emit CreateUser(msg.sender);
         lastUserId++;
+        return user;
     }
 
     function createTournament(
@@ -114,7 +124,7 @@ contract TournamentContract is Ownable, AccessControl {
         uint _prize,
         uint _maxParticipantCount,
         uint[] memory _prizeDistribution
-    ) public onlyOrganizers {
+    ) public onlyOrganizers returns (Tournament memory) {
         uint totalOfPrizeDistributionRatio = 0;
         for (uint i = 0; i < _prizeDistribution.length; i++) {
             totalOfPrizeDistributionRatio += _prizeDistribution[i];
@@ -123,7 +133,7 @@ contract TournamentContract is Ownable, AccessControl {
             totalOfPrizeDistributionRatio == 100,
             "Prize distribution is not equal to 100%"
         );
-        tournamentList[lastTournamentId] = Tournament({
+        Tournament memory tournament = Tournament({
             id: lastTournamentId,
             name: _name,
             entryFee: _entryFee,
@@ -133,16 +143,23 @@ contract TournamentContract is Ownable, AccessControl {
             tournamentStatus: TournamentStatus.NEW,
             createDate: block.timestamp
         });
+        tournamentList[lastTournamentId] = tournament;
         prizeDistribution[lastTournamentId] = _prizeDistribution;
         tournamentOrganizers[lastTournamentId] = msg.sender;
         emit CreateTournament(lastTournamentId, msg.sender);
         lastTournamentId++;
+        return tournament;
     }
 
     function joinTournament(
         uint _tournamentId,
         address _address
-    ) public onlyUsers onlyNotJoinedUsers(_tournamentId) {
+    )
+        public
+        onlyUsers
+        onlyNotJoinedUsers(_tournamentId)
+        returns (uint, address)
+    {
         require(
             tournamentList[_tournamentId].maxParticipantCount >
                 tournamentList[_tournamentId].participantCount,
@@ -151,14 +168,20 @@ contract TournamentContract is Ownable, AccessControl {
         tournamentParticipants[_tournamentId][_address] = true;
         tournamentList[_tournamentId].participantCount++;
         emit JoinTournament(_tournamentId, _address);
+        return (_tournamentId, _address);
     }
 
     function changeStatusOfTournament(
         uint _tournamentId,
         TournamentStatus _status
-    ) public onlyTournamentOrganizer(_tournamentId) {
+    )
+        public
+        onlyTournamentOrganizer(_tournamentId)
+        returns (uint, TournamentStatus)
+    {
         tournamentList[_tournamentId].tournamentStatus = _status;
         emit ChangeTournamentStatus(_tournamentId, _status);
+        return (_tournamentId, _status);
     }
 
     function startTournament(uint _tournamentId) public {
@@ -185,14 +208,22 @@ contract TournamentContract is Ownable, AccessControl {
         changeStatusOfTournament(_tournamentId, TournamentStatus.COMPLETED);
     }
 
-    function donateToTournament(uint _tournamentId) public payable {
+    function donateToTournament(
+        uint _tournamentId
+    ) public payable returns (uint, address, uint) {
         tournamentBalance[_tournamentId] += msg.value;
         emit DonateTournamentBalance(_tournamentId, msg.sender, msg.value);
+        return (_tournamentId, msg.sender, msg.value);
     }
 
     function sendPaymentsToWinners(
         uint _tournamentId
-    ) public payable onlyTournamentOrganizer(_tournamentId) {
+    )
+        public
+        payable
+        onlyTournamentOrganizer(_tournamentId)
+        returns (uint, uint)
+    {
         uint tournamentPrize = tournamentList[_tournamentId].prize;
         uint totalPaymentToWinners = 0;
         for (uint i = 0; i < tournamentWinners[_tournamentId].length; i++) {
@@ -214,6 +245,7 @@ contract TournamentContract is Ownable, AccessControl {
         tournamentList[_tournamentId].tournamentStatus = TournamentStatus
             .PRIZE_DISTRIBUTED;
         emit SendPaymentsToWinnersCompleted(_tournamentId);
+        return (tournamentBalance[_tournamentId], totalPaymentToWinners);
     }
 
     function getTournamentBalance(
